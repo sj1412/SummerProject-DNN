@@ -53,6 +53,38 @@ model.fit(
     verbose=1
 )
 
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, classification_report, confusion_matrix
+
+# Predict class probabilities
+y_pred_probs = model.predict(X_test_scaled)
+
+# Get class with highest probability
+y_pred_classes = np.argmax(y_pred_probs, axis=1)
+
+# Actual class labels
+y_true_classes = y_test  # already in integer form
+
+# Accuracy
+acc = accuracy_score(y_true_classes, y_pred_classes)
+print(f"Accuracy: {acc:.4f}")
+
+# Precision, Recall, F1 (macro = unweighted average across classes)
+precision = precision_score(y_true_classes, y_pred_classes, average='macro')
+recall = recall_score(y_true_classes, y_pred_classes, average='macro')
+f1 = f1_score(y_true_classes, y_pred_classes, average='macro')
+
+print(f"Macro Precision: {precision:.4f}")
+print(f"Macro Recall: {recall:.4f}")
+print(f"Macro F1 Score: {f1:.4f}")
+
+# Classification report (per-class breakdown)
+print("\nClassification Report:")
+print(classification_report(y_true_classes, y_pred_classes, target_names=iris.target_names))
+
+# Confusion Matrix
+print("Confusion Matrix:")
+print(confusion_matrix(y_true_classes, y_pred_classes))
+
 # Save model 
 model.save("iris_dnn_model.keras")
 
