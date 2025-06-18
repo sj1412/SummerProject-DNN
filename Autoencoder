@@ -1,0 +1,117 @@
+!pip install tslearn
+
+import numpy as np
+import matplotlib.pyplot as plt
+from tslearn.datasets import UCR_UEA_datasets
+from sklearn.preprocessing import MinMaxScaler
+from sklearn.metrics import classification_report, roc_auc_score, precision_recall_curve, auc
+from tensorflow.keras.models import Model
+from tensorflow.keras.layers import Input, Dense
+from tensorflow.keras.optimizers import Adam
+from tensorflow.keras.callbacks import EarlyStopping
+
+# 1. Load ECG5000
+
+ucr = UCR_UEA_datasets()
+X_train, y_train, X_test, y_test = ucr.load_dataset("ECG5000")
+
+# Concatenate train+test for a single pool (UCR splits are arbitrary here)
+X_full = np.vstack((X_train, X_test))         
+y_full = np.concatenate((y_train, y_test))     # labels 1–5
+
+# Flatten 3‑D to 2‑D  (samples, 140)  
+X_full = X_full.reshape((X_full.shape[0], X_full.shape[1]))
+
+
+# 2. Scale to [0,1]  (important for sigmoid output layer)
+scaler = MinMaxScaler()
+X_full_scaled = scaler.fit_transform(X_full)
+
+
+# 3. Split NORMAL vs ALL
+#    – only class 1 is "normal"
+X_norm = X_full_scaled[y_full == 1]   # 4 500 normal beats
+X_all  = X_full_scaled                # normals + anomalies
+y_all  = y_full                       
+
+print(f"Normal samples: {X_norm.shape[0]}, total samples: {X_all.shape[0]}")
+
+
+# 4. Build a  DNN autoencoder
+─
+INPUT_DIM = X_norm.shape[1]           
+
+inp   = Input(shape=(INPUT_DIM,))
+enc1  = Dense(64, activation='relu')(inp)
+enc2  = Dense(32, activation='relu')(enc1)
+bottl = Dense(16, activation='relu')(enc2)      # bottleneck
+
+dec1  = Dense(32, activation='relu')(bottl)
+dec2  = Dense(64, activation='relu')(dec1)
+out   = Dense(INPUT_DIM, activation='sigmoid')(dec2)
+
+autoencoder = Model(inputs=inp, outputs=out)
+autoencoder.compile(optimizer=Adam(1e‑4), loss='mse')
+autoencoder.summary()
+
+
+# 5. Train only on NORMAL beats
+
+es = EarlyStopping(monitor='val_loss', patience=5, restore_best_weights=True)
+
+history = autoencoder.fit(
+    X_norm, X_norm,
+    epochs=50,
+    batch_size=64,
+    shuffle=True,
+    validation_split=0.1,
+    callbacks=[es],
+    verbose=2
+)
+
+
+# 6. Reconstruction error on ALL data
+\
+X_pred = autoencoder.predict(X_all, batch_size=256, verbose=0)
+mse    = np.mean(np.square(X_all - X_pred), axis=1)
+
+# Choose threshold = 95th percentile of NORMAL errors
+threshold = np.percentile(mse[y_all == 1], 95)
+print(f"Threshold (95th % of normal MSE): {threshold:.6f}")
+
+# Flag anomalies
+y_pred = (mse > threshold).astype(int)          # 1 = anomaly, 0 = normal
+y_true = (y_all != 1).astype(int)               # ground truth anomalies
+
+
+# 7. Evaluation
+print("\nClassification report (0 = normal, 1 = anomaly):")
+print(classification_report(y_true, y_pred, digits=4))
+
+auc_roc  = roc_auc_score(y_true, mse)
+prec, rec, _ = precision_recall_curve(y_true, mse)
+auc_pr   = auc(rec, prec)
+print(f"AUC‑ROC: {auc_roc:.4f}   |   AUC‑PR: {auc_pr:.4f}")
+
+# Save the trained model
+autoencoder.save("autoencoder-ecg.keras")
+
+import tensorflow as tf
+from tensorflow.keras.models import load_model
+
+# Load from .keras format
+autoencoder = load_model("autoencoder-ecg.keras")
+
+# Convert the trained autoencoder to TFLite
+converter = tf.lite.TFLiteConverter.from_keras_model(autoencoder)
+
+# Optional: enable optimization for smaller size
+converter.optimizations = [tf.lite.Optimize.DEFAULT]
+
+# Convert the model
+tflite_model = converter.convert()
+
+# Save the TFLite model to disk
+with open("autoencoder-ecg.tflite", "wb") as f:
+    f.write(tflite_model)
+
