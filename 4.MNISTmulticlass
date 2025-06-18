@@ -1,3 +1,4 @@
+# multiclass classification on MNIST dataset to classify various digits from 0 to 9
 import tensorflow as tf
 import numpy as np
 (X_train, y_train), (X_test, y_test) = tf.keras.datasets.mnist.load_data()
