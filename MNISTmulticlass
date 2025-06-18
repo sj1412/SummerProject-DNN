@@ -1,0 +1,61 @@
+import tensorflow as tf
+import numpy as np
+(X_train, y_train), (X_test, y_test) = tf.keras.datasets.mnist.load_data()
+NUM_TRAIN   = 5000   
+NUM_TEST    = 1000   
+RESIZE_TO14 = True    
+EPOCHS      = 10
+BATCH_SIZE  = 64
+# Slice smaller subsets
+X_train, y_train = X_train[:NUM_TRAIN], y_train[:NUM_TRAIN]
+X_test , y_test  = X_test [:NUM_TEST ], y_test [:NUM_TEST ]
+if RESIZE_TO14:
+    X_train = tf.image.resize(tf.expand_dims(X_train, -1), (14, 14)).numpy().squeeze()
+    X_test  = tf.image.resize(tf.expand_dims(X_test , -1), (14, 14)).numpy().squeeze()
+    IMG_SHAPE = (14, 14)
+else:
+    IMG_SHAPE = (28, 28)
+X_train = X_train.astype("float32") / 255.0
+X_test  = X_test .astype("float32") / 255.0
+# Build a DNN
+model = tf.keras.Sequential([
+    tf.keras.layers.Flatten(input_shape=IMG_SHAPE),      # 196 / 784 → 1‑D
+    tf.keras.layers.Dense(64, activation="relu"),
+    tf.keras.layers.Dense(32, activation="relu"),
+    tf.keras.layers.Dense(10, activation="softmax")      # 10 digit classes
+])
+model.compile(optimizer="adam",
+              loss="sparse_categorical_crossentropy",
+              metrics=["accuracy"])
+
+model.summary()
+# Train & evaluate
+model.fit(X_train, y_train,
+          epochs=EPOCHS,
+          batch_size=BATCH_SIZE,
+          validation_split=0.1,
+          verbose=1)
+
+test_loss, test_acc = model.evaluate(X_test, y_test, verbose=0)
+print(f"\nTest accuracy: {test_acc:.4f}")
+model.save("mnist.keras")
+# Export a float‑32 TFLite
+model = tf.keras.models.load_model("mnist.keras")
+converter = tf.lite.TFLiteConverter.from_keras_model(model)
+tflite_model = converter.convert()
+open("mnist_float.tflite", "wb").write(tflite_model)
+loss, accuracy = model.evaluate(X_test, y_test, verbose=1)
+print(f"Test loss: {loss:.4f}")
+print(f"Test accuracy: {accuracy:.4f}")
+
+from sklearn.metrics import confusion_matrix
+probs = model.predict(X_test)
+y_pred = probs.argmax(1)
+print(confusion_matrix(y_test, y_pred))
+from sklearn.metrics import precision_score, recall_score, f1_score
+print("Precision:", precision_score(y_test, y_pred, average='macro'))
+print("Recall   :", recall_score(y_test, y_pred, average='macro'))
+print("F1 Score :", f1_score(y_test, y_pred, average='macro'))
+
+from sklearn.metrics import classification_report
+print(classification_report(y_test, y_pred))
